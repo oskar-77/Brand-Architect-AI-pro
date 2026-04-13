@@ -187,7 +187,7 @@ function PostCard({ post, onSave, onRegenerate, onGenerateImage }: {
 
         {/* Hashtags */}
         <div>
-          <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
+          <label className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
             <Hash className="w-3 h-3" /> Hashtags
           </label>
           {editing ? (
@@ -210,7 +210,7 @@ function PostCard({ post, onSave, onRegenerate, onGenerateImage }: {
 
         {/* Image Prompt */}
         <div className="rounded-lg bg-muted/40 p-3.5">
-          <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
+          <label className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
             <ImageIcon className="w-3 h-3" /> Image Prompt
           </label>
           {editing ? (

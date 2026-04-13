@@ -342,8 +342,41 @@ export default function BrandWizard() {
           {/* Step 4: Generate */}
           {step === 4 && (
             <div className="text-center py-4 space-y-6">
-              {!generating && !generated && (
-                <>
+              {generated ? (
+                <div className="space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-green-100 dark:bg-green-950 flex items-center justify-center mx-auto">
+                    <Check className="w-8 h-8 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground">Brand kit generated!</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Redirecting to your brand dashboard...</p>
+                  </div>
+                </div>
+              ) : generating ? (
+                <div className="space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
+                    <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground">AI is building your brand kit...</h3>
+                    <p className="text-sm text-muted-foreground mt-1">ChatGPT is analyzing your company profile.</p>
+                  </div>
+                  <div className="space-y-2 text-left">
+                    {[
+                      "Analyzing company profile and industry",
+                      extractedColors.length > 0 ? "Using logo colors for palette" : "Deriving brand color palette",
+                      "Building brand personality & positioning",
+                      "Defining tone of voice & audience segments",
+                    ].map((task) => (
+                      <div key={task} className="flex items-center gap-3">
+                        <Loader2 className="w-3.5 h-3.5 text-primary animate-spin flex-shrink-0" />
+                        <span className="text-sm text-muted-foreground">{task}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-6">
                   <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
                     <Sparkles className="w-8 h-8 text-primary" />
                   </div>
@@ -373,43 +406,6 @@ export default function BrandWizard() {
                     <Sparkles className="w-4 h-4" />
                     {error ? "Try Again" : "Generate Brand Kit with AI"}
                   </button>
-                </>
-              )}
-
-              {generating && !generated && (
-                <div className="space-y-4">
-                  <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
-                    <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-semibold text-foreground">AI is building your brand kit...</h3>
-                    <p className="text-sm text-muted-foreground mt-1">ChatGPT is analyzing your company profile.</p>
-                  </div>
-                  <div className="space-y-2 text-left">
-                    {[
-                      "Analyzing company profile and industry",
-                      extractedColors.length > 0 ? "Using logo colors for palette" : "Deriving brand color palette",
-                      "Building brand personality & positioning",
-                      "Defining tone of voice & audience segments",
-                    ].map((task) => (
-                      <div key={task} className="flex items-center gap-3">
-                        <Loader2 className="w-3.5 h-3.5 text-primary animate-spin flex-shrink-0" />
-                        <span className="text-sm text-muted-foreground">{task}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {generated && (
-                <div className="space-y-4">
-                  <div className="w-16 h-16 rounded-2xl bg-green-100 dark:bg-green-950 flex items-center justify-center mx-auto">
-                    <Check className="w-8 h-8 text-green-600 dark:text-green-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground">Brand kit generated!</h3>
-                    <p className="text-sm text-muted-foreground mt-1">Redirecting to your brand dashboard...</p>
-                  </div>
                 </div>
               )}
             </div>

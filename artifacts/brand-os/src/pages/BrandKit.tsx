@@ -1,5 +1,5 @@
 import { useParams, Link } from "wouter";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useGetBrand, useGetBrandStats, useGenerateCampaign, getGetBrandQueryKey, getGetBrandStatsQueryKey, getListCampaignsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Sparkles, Loader2, Megaphone, Building2, Globe, Palette, MessageSquare, Users, Layers, Edit, X, Image as ImageIcon, Plus } from "lucide-react";
@@ -38,7 +38,8 @@ export default function BrandKit() {
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
   const [postCount, setPostCount] = useState(7);
   const [generating, setGenerating] = useState(false);
-  const briefFileRef = useState<HTMLInputElement | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const briefFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data: brand, isLoading } = useGetBrand(brandId, {
     query: { enabled: !!brandId, queryKey: getGetBrandQueryKey(brandId) },
@@ -81,6 +82,7 @@ export default function BrandKit() {
   async function handleGenerateCampaign() {
     setGenerating(true);
     setShowBriefModal(false);
+    setGenerateError(null);
     try {
       const campaign = await generateCampaign.mutateAsync({
         id: brandId,
@@ -92,8 +94,10 @@ export default function BrandKit() {
       });
       queryClient.invalidateQueries({ queryKey: getListCampaignsQueryKey(brandId) });
       navigate(`/campaigns/${campaign.id}`);
-    } catch {
+    } catch (err) {
       setGenerating(false);
+      const msg = err instanceof Error ? err.message : "Campaign generation failed. Please try again.";
+      setGenerateError(msg);
     }
   }
 
@@ -119,6 +123,32 @@ export default function BrandKit() {
 
   return (
     <div className="px-6 py-8 max-w-5xl mx-auto space-y-8">
+      {/* Full-screen generating overlay — blocks navigation during AI generation */}
+      {generating && (
+        <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col items-center justify-center gap-6">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+          </div>
+          <div className="text-center space-y-2">
+            <h3 className="text-lg font-semibold text-foreground">Generating your campaign...</h3>
+            <p className="text-sm text-muted-foreground">AI is crafting posts and strategy. This may take 20–40 seconds.</p>
+          </div>
+          <div className="flex flex-col gap-2 text-left w-64">
+            {[
+              "Analyzing brand kit & brief",
+              "Building campaign strategy",
+              "Writing posts & hooks",
+              "Creating image prompts",
+            ].map((step) => (
+              <div key={step} className="flex items-center gap-3">
+                <Loader2 className="w-3.5 h-3.5 text-primary animate-spin flex-shrink-0" />
+                <span className="text-sm text-muted-foreground">{step}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Campaign Brief Modal */}
       {showBriefModal && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
@@ -134,9 +164,9 @@ export default function BrandKit() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5 flex items-center justify-between">
+              <label className="block text-sm font-medium text-foreground mb-1.5">
                 <span>Number of Posts</span>
-                <span className="text-primary font-bold text-base">{postCount}</span>
+                <span className="ml-2 text-primary font-bold text-base">{postCount}</span>
               </label>
               <input
                 type="range"
@@ -157,20 +187,18 @@ export default function BrandKit() {
               <textarea
                 className="w-full px-4 py-3 rounded-lg border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                 rows={5}
-                placeholder={`Examples:
-• Focus on converting new leads, use urgency and social proof
-• Promote our summer sale with a fun and vibrant tone
-• Target young professionals 25-35, keep it minimal and premium
-• Campaign for product launch week — build excitement gradually`}
+                placeholder={`Examples:\n• Focus on converting new leads, use urgency and social proof\n• Promote our summer sale with a fun and vibrant tone\n• Target young professionals 25-35, keep it minimal and premium`}
                 value={brief}
                 onChange={(e) => setBrief(e.target.value)}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5 flex items-center gap-2">
-                <ImageIcon className="w-3.5 h-3.5" />
-                Reference Images (optional, max 3)
+              <label className="block text-sm font-medium text-foreground mb-1.5">
+                <span className="flex items-center gap-2">
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  Reference Images (optional, max 3)
+                </span>
               </label>
               <div className="flex items-center gap-3 flex-wrap">
                 {referenceImages.map((img, i) => (
@@ -187,12 +215,25 @@ export default function BrandKit() {
                 {referenceImages.length < 3 && (
                   <label className="w-16 h-16 rounded-lg border-2 border-dashed border-border flex items-center justify-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors">
                     <Plus className="w-5 h-5 text-muted-foreground" />
-                    <input type="file" accept="image/*" multiple className="hidden" onChange={handleRefImageUpload} />
+                    <input
+                      ref={briefFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={handleRefImageUpload}
+                    />
                   </label>
                 )}
               </div>
               <p className="text-xs text-muted-foreground mt-2">These images will guide the visual style of the campaign posts</p>
             </div>
+
+            {generateError && (
+              <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive">
+                {generateError}
+              </div>
+            )}
 
             <div className="flex items-center gap-3">
               <button
@@ -255,7 +296,7 @@ export default function BrandKit() {
                 Campaigns ({stats?.totalCampaigns ?? 0})
               </Link>
               <button
-                onClick={() => setShowBriefModal(true)}
+                onClick={() => { setGenerateError(null); setShowBriefModal(true); }}
                 disabled={generating}
                 className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
               >
@@ -352,10 +393,10 @@ export default function BrandKit() {
                 <h2 className="text-sm font-semibold text-foreground">Generate Campaign</h2>
               </div>
               <p className="text-xs text-muted-foreground mb-4">
-                Tell the AI your campaign goals, style preferences, and any reference images — then get a complete 7-day plan with ready-to-publish posts.
+                Tell the AI your campaign goals, style preferences, and any reference images — then get a complete plan with ready-to-publish posts.
               </p>
               <button
-                onClick={() => setShowBriefModal(true)}
+                onClick={() => { setGenerateError(null); setShowBriefModal(true); }}
                 disabled={generating}
                 className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
               >
