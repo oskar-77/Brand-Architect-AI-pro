@@ -1,16 +1,44 @@
 import { Link, useLocation } from "wouter";
 import { LayoutDashboard, Sparkles, PlusCircle, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
+import { getGetDashboardSummaryQueryKey, getListBrandsQueryKey } from "@workspace/api-client-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/brands/new", label: "New Brand", icon: PlusCircle },
 ];
 
+function usePrefetchCoreData() {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const baseUrl = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+
+    const prefetchIfMissing = async (queryKey: unknown[], url: string) => {
+      const existing = queryClient.getQueryData(queryKey);
+      if (existing) return;
+      try {
+        const res = await fetch(`${baseUrl}${url}`);
+        if (res.ok) {
+          const data = await res.json();
+          queryClient.setQueryData(queryKey, data);
+        }
+      } catch {
+        // silently ignore prefetch errors
+      }
+    };
+
+    prefetchIfMissing(getGetDashboardSummaryQueryKey(), "/api/dashboard/summary");
+    prefetchIfMissing(getListBrandsQueryKey(), "/api/brands");
+  }, [queryClient]);
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  usePrefetchCoreData();
 
   return (
     <div className="min-h-screen bg-background flex">
