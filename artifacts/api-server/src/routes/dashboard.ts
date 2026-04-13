@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
 import { desc, count } from "drizzle-orm";
 import { db, brandsTable, campaignsTable, postsTable } from "@workspace/db";
+import { asyncHandler } from "../lib/asyncHandler";
 
 const router: IRouter = Router();
 
-router.get("/dashboard/summary", async (_req, res): Promise<void> => {
+router.get("/dashboard/summary", asyncHandler(async (_req, res) => {
   const [brandCount] = await db.select({ cnt: count() }).from(brandsTable);
   const [campaignCount] = await db.select({ cnt: count() }).from(campaignsTable);
   const [postCount] = await db.select({ cnt: count() }).from(postsTable);
@@ -33,6 +34,6 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
       updatedAt: b.updatedAt.toISOString(),
     })),
   });
-});
+}));
 
 export default router;

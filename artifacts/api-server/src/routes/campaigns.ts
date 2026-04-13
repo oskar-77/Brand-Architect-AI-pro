@@ -1,13 +1,14 @@
 import { Router, type IRouter } from "express";
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, campaignsTable, postsTable } from "@workspace/db";
 import {
   GetCampaignParams,
 } from "@workspace/api-zod";
+import { asyncHandler } from "../lib/asyncHandler";
 
 const router: IRouter = Router();
 
-router.get("/campaigns/:id", async (req, res): Promise<void> => {
+router.get("/campaigns/:id", asyncHandler(async (req, res) => {
   const params = GetCampaignParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -40,6 +41,6 @@ router.get("/campaigns/:id", async (req, res): Promise<void> => {
     createdAt: campaign.createdAt.toISOString(),
     updatedAt: campaign.updatedAt.toISOString(),
   });
-});
+}));
 
 export default router;

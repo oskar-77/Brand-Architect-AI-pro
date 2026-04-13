@@ -13,10 +13,11 @@ import {
   GetBrandStatsParams,
 } from "@workspace/api-zod";
 import { generateBrandKit, generateCampaign } from "../lib/ai";
+import { asyncHandler } from "../lib/asyncHandler";
 
 const router: IRouter = Router();
 
-router.get("/brands", async (req, res): Promise<void> => {
+router.get("/brands", asyncHandler(async (_req, res) => {
   const brands = await db
     .select({
       id: brandsTable.id,
@@ -30,9 +31,9 @@ router.get("/brands", async (req, res): Promise<void> => {
     .from(brandsTable)
     .orderBy(desc(brandsTable.createdAt));
   res.json(brands);
-});
+}));
 
-router.post("/brands", async (req, res): Promise<void> => {
+router.post("/brands", asyncHandler(async (req, res) => {
   const parsed = CreateBrandBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -57,9 +58,9 @@ router.post("/brands", async (req, res): Promise<void> => {
     createdAt: brand.createdAt.toISOString(),
     updatedAt: brand.updatedAt.toISOString(),
   });
-});
+}));
 
-router.get("/brands/:id", async (req, res): Promise<void> => {
+router.get("/brands/:id", asyncHandler(async (req, res) => {
   const params = GetBrandParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -79,9 +80,9 @@ router.get("/brands/:id", async (req, res): Promise<void> => {
     createdAt: brand.createdAt.toISOString(),
     updatedAt: brand.updatedAt.toISOString(),
   });
-});
+}));
 
-router.patch("/brands/:id", async (req, res): Promise<void> => {
+router.patch("/brands/:id", asyncHandler(async (req, res) => {
   const params = UpdateBrandParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -118,9 +119,9 @@ router.patch("/brands/:id", async (req, res): Promise<void> => {
     createdAt: brand.createdAt.toISOString(),
     updatedAt: brand.updatedAt.toISOString(),
   });
-});
+}));
 
-router.delete("/brands/:id", async (req, res): Promise<void> => {
+router.delete("/brands/:id", asyncHandler(async (req, res) => {
   const params = DeleteBrandParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -135,9 +136,9 @@ router.delete("/brands/:id", async (req, res): Promise<void> => {
   }
 
   res.sendStatus(204);
-});
+}));
 
-router.post("/brands/:id/generate-kit", async (req, res): Promise<void> => {
+router.post("/brands/:id/generate-kit", asyncHandler(async (req, res) => {
   const params = GenerateBrandKitParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -165,9 +166,9 @@ router.post("/brands/:id/generate-kit", async (req, res): Promise<void> => {
     createdAt: updated.createdAt.toISOString(),
     updatedAt: updated.updatedAt.toISOString(),
   });
-});
+}));
 
-router.post("/brands/:id/generate-campaign", async (req, res): Promise<void> => {
+router.post("/brands/:id/generate-campaign", asyncHandler(async (req, res) => {
   const params = GenerateCampaignParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -243,9 +244,9 @@ router.post("/brands/:id/generate-campaign", async (req, res): Promise<void> => 
     createdAt: campaign.createdAt.toISOString(),
     updatedAt: campaign.updatedAt.toISOString(),
   });
-});
+}));
 
-router.get("/brands/:id/campaigns", async (req, res): Promise<void> => {
+router.get("/brands/:id/campaigns", asyncHandler(async (req, res) => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const brandId = parseInt(raw, 10);
   if (isNaN(brandId)) {
@@ -283,9 +284,9 @@ router.get("/brands/:id/campaigns", async (req, res): Promise<void> => {
   }));
 
   res.json(result);
-});
+}));
 
-router.get("/brands/:id/stats", async (req, res): Promise<void> => {
+router.get("/brands/:id/stats", asyncHandler(async (req, res) => {
   const params = GetBrandStatsParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -321,6 +322,6 @@ router.get("/brands/:id/stats", async (req, res): Promise<void> => {
     brandKitGenerated: brand.brandKit != null,
     lastCampaignDate: campaigns[0]?.createdAt?.toISOString() ?? null,
   });
-});
+}));
 
 export default router;

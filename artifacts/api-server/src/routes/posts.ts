@@ -9,10 +9,11 @@ import {
   GeneratePostImageParams,
 } from "@workspace/api-zod";
 import { openai, generateImageBuffer } from "@workspace/integrations-openai-ai-server";
+import { asyncHandler } from "../lib/asyncHandler";
 
 const router: IRouter = Router();
 
-router.get("/posts/:id", async (req, res): Promise<void> => {
+router.get("/posts/:id", asyncHandler(async (req, res) => {
   const params = GetPostParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -30,9 +31,9 @@ router.get("/posts/:id", async (req, res): Promise<void> => {
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
   });
-});
+}));
 
-router.patch("/posts/:id", async (req, res): Promise<void> => {
+router.patch("/posts/:id", asyncHandler(async (req, res) => {
   const params = UpdatePostParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -69,9 +70,9 @@ router.patch("/posts/:id", async (req, res): Promise<void> => {
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
   });
-});
+}));
 
-router.post("/posts/:id/generate-image", async (req, res): Promise<void> => {
+router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
   const params = GeneratePostImageParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -98,9 +99,9 @@ router.post("/posts/:id/generate-image", async (req, res): Promise<void> => {
     createdAt: updated.createdAt.toISOString(),
     updatedAt: updated.updatedAt.toISOString(),
   });
-});
+}));
 
-router.post("/posts/:id/regenerate", async (req, res): Promise<void> => {
+router.post("/posts/:id/regenerate", asyncHandler(async (req, res) => {
   const params = RegeneratePostParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -198,6 +199,6 @@ Return ONLY a JSON object with these fields:
     createdAt: updated.createdAt.toISOString(),
     updatedAt: updated.updatedAt.toISOString(),
   });
-});
+}));
 
 export default router;
