@@ -8,12 +8,58 @@ import { logger } from "../lib/logger";
 import { getCampaignForUser, getUserWorkspaceIds } from "../lib/workspace";
 import path from "path";
 import fs from "fs";
+import sharp from "sharp";
 
 const STORAGE_DIR = process.env.STORAGE_DIR ?? path.join(process.cwd(), "storage");
 const IMAGES_DIR = path.join(STORAGE_DIR, "images");
 fs.mkdirSync(IMAGES_DIR, { recursive: true });
 
 const router: IRouter = Router();
+
+async function compositeLogoOnImage(
+  imageBuffer: Buffer,
+  logoUrl: string | null | undefined
+): Promise<Buffer> {
+  if (!logoUrl) return imageBuffer;
+  try {
+    let logoBuffer: Buffer;
+    if (logoUrl.startsWith("data:")) {
+      const base64Part = logoUrl.split(",")[1];
+      if (!base64Part) return imageBuffer;
+      logoBuffer = Buffer.from(base64Part, "base64");
+    } else if (logoUrl.startsWith("/api/storage/")) {
+      const relativePath = logoUrl.replace("/api/storage/", "");
+      const filePath = path.join(STORAGE_DIR, relativePath);
+      if (!fs.existsSync(filePath)) return imageBuffer;
+      logoBuffer = fs.readFileSync(filePath);
+    } else {
+      return imageBuffer;
+    }
+    const base = sharp(imageBuffer);
+    const baseMeta = await base.metadata();
+    const imgWidth = baseMeta.width ?? 1024;
+    const imgHeight = baseMeta.height ?? 1024;
+    const logoWidth = Math.round(imgWidth * 0.22);
+    const resizedLogo = await sharp(logoBuffer)
+      .resize(logoWidth, null, { fit: "inside", withoutEnlargement: false })
+      .ensureAlpha()
+      .png()
+      .toBuffer();
+    const logoMeta = await sharp(resizedLogo).metadata();
+    const logoH = logoMeta.height ?? Math.round(logoWidth * 0.5);
+    const paddingX = Math.round(imgWidth * 0.04);
+    const paddingY = Math.round(imgHeight * 0.04);
+    const left = imgWidth - logoWidth - paddingX;
+    const top = imgHeight - logoH - paddingY;
+    return base
+      .composite([{ input: resizedLogo, left, top, blend: "over" }])
+      .png()
+      .toBuffer();
+  } catch (err) {
+    logger.warn({ err }, "Logo compositing failed in bulk job, returning base image");
+    return imageBuffer;
+  }
+}
 
 async function processImageJob(jobId: number, payload: { postId: number }): Promise<void> {
   await db.update(jobsTable).set({ status: "running" }).where(eq(jobsTable.id, jobId));
@@ -22,10 +68,17 @@ async function processImageJob(jobId: number, payload: { postId: number }): Prom
     const [post] = await db.select().from(postsTable).where(eq(postsTable.id, payload.postId));
     if (!post) throw new Error("Post not found");
 
-    const imageBuffer = await generateImageBuffer(post.imagePrompt, "1024x1024");
+    const [campaign] = await db.select().from(campaignsTable).where(eq(campaignsTable.id, post.campaignId));
+    const brandLogoUrl = campaign
+      ? (await db.select({ logoUrl: brandsTable.logoUrl }).from(brandsTable).where(eq(brandsTable.id, campaign.brandId)))[0]?.logoUrl
+      : null;
+
+    const baseImageBuffer = await generateImageBuffer(post.imagePrompt, "1024x1024");
+    const finalBuffer = await compositeLogoOnImage(baseImageBuffer, brandLogoUrl ?? null);
+
     const filename = `post-${post.id}-${Date.now()}.png`;
     const filePath = path.join(IMAGES_DIR, filename);
-    fs.writeFileSync(filePath, imageBuffer);
+    fs.writeFileSync(filePath, finalBuffer);
 
     const imageUrl = `/api/storage/images/${filename}`;
     await db.update(postsTable).set({ imageUrl }).where(eq(postsTable.id, post.id));
