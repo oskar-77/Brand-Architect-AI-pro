@@ -1,0 +1,255 @@
+Your goal is to upgrade this project into a production-ready SaaS platform while maintaining stability and avoiding breaking existing features.
+
+IMPORTANT RULES
+
+Do not break existing API routes.
+
+Do not remove existing functionality.
+
+Refactor only where necessary.
+
+Prefer modular architecture.
+
+Use open-source tools that can run on the same server.
+
+Avoid paid services unless absolutely necessary.
+
+Keep the project easy to deploy with Docker.
+
+FEATURES TO IMPLEMENT
+
+USER AUTHENTICATION SYSTEM
+
+Implement a secure authentication system using Auth.js.
+
+Requirements:
+
+Email/password login
+
+Registration page
+
+Session management
+
+Secure password hashing (bcrypt)
+
+JWT or session-based auth
+
+Protected API routes
+
+Database tables:
+
+usersidemailnamepassword_hashcreated_at
+
+WORKSPACES (MULTI-TENANT)
+
+Implement team workspaces.
+
+Each user can create multiple workspaces.
+
+Workspace contains:
+
+brands
+
+campaigns
+
+members
+
+Database tables:
+
+workspacesidnameowner_idcreated_at
+
+workspace_membersworkspace_iduser_idrole (owner, admin, editor)
+
+Update existing tables so brands belong to workspace.
+
+OBJECT STORAGE FOR MEDIA
+
+Currently logos and images are stored as base64 in PostgreSQL.
+
+Refactor this system.
+
+Implement local object storage using filesystem:
+
+/storage/logos/images/campaigns
+
+Store only file URLs in database.
+
+Example field:
+
+logo_urlimage_url
+
+Ensure uploads are secure and validated.
+
+ASYNC JOB QUEUE
+
+Campaign generation currently blocks the request.
+
+Implement background jobs using:
+
+Redis + BullMQ.
+
+System design:
+
+API request→ job added to queue→ worker processes job→ result saved to database→ frontend polls job status.
+
+Job types:
+
+generateCampaigngeneratePostImagesgenerateBrandKit
+
+BULK IMAGE GENERATION
+
+Add a feature to generate images for all posts in a campaign.
+
+Requirements:
+
+button: "Generate All Visuals"
+
+queue each generation job
+
+run workers with concurrency limit
+
+show progress in UI
+
+BRAND BOOK PDF EXPORT
+
+Add ability to export a brand book as PDF.
+
+Use Puppeteer.
+
+PDF must include:
+
+brand name
+
+logo
+
+color palette
+
+typography
+
+brand voice
+
+campaign examples
+
+generated visuals
+
+Add button:
+
+Export Brandbook PDF
+
+PROFESSIONAL DASHBOARD UI
+
+Improve the frontend UI.
+
+Use:
+
+Tailwind CSSshadcn/ui
+
+Layout:
+
+Sidebar:DashboardBrandsCampaignsMedia LibraryTeamSettings
+
+Main area:
+
+StatisticsRecent brandsRecent campaignsQuick actions
+
+MEDIA LIBRARY
+
+Create a centralized media manager.
+
+Features:
+
+view uploaded images
+
+reuse visuals
+
+filter by brand
+
+delete media safely
+
+DOCKER SUPPORT
+
+Add Docker configuration.
+
+Required services:
+
+app
+
+postgres
+
+redis
+
+Include:
+
+Dockerfiledocker-compose.yml
+
+PERFORMANCE AND SAFETY
+
+Add:
+
+rate limiting
+
+input validation
+
+error boundaries
+
+structured logging
+
+environment variable validation
+
+CODE QUALITY
+
+Ensure:
+
+TypeScript strict mode
+
+reusable services
+
+clean folder structure
+
+separation of concerns
+
+Recommended backend structure:
+
+server/controllersservicesqueuesworkersmiddlewareroutesdb
+
+MIGRATION SAFETY
+
+If database schema changes:
+
+create migrations
+
+do not destroy existing data
+
+OUTPUT REQUIREMENTS
+
+When implementing changes:
+
+Provide updated code files.
+
+Provide migration scripts.
+
+Document all new endpoints.
+
+Document environment variables.
+
+Provide setup instructions.
+
+FINAL GOAL
+
+Transform the project into a scalable SaaS AI branding platform with:
+
+authentication
+
+team workspaces
+
+async AI generation
+
+media management
+
+brandbook PDF export
+
+professional UI
+
+self-hosted infrastructure.
+
+All tools must be open source and runnable on a single VPS server.

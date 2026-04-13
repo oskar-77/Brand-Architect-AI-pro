@@ -6,12 +6,14 @@ This file is the authoritative technical reference for the project. It is always
 
 ## What This App Does
 
-A web application where users create brand identities and full social media campaigns using AI. The core loop:
+A self-hosted SaaS platform where teams create brand identities and full social media campaigns using AI. The core loop:
 
-1. User fills out a brand form (company name, description, industry, optional logo)
-2. AI (OpenAI `gpt-5-nano`) generates a complete brand kit: personality, positioning, color palette, tone of voice, visual style rules
-3. User launches a campaign; AI generates 7-14 social posts (hook, caption, CTA, hashtags, image prompt)
-4. User reviews, edits, and regenerates individual posts; can generate an AI image per post
+1. User registers/logs in (JWT email+password auth)
+2. User creates or joins a workspace (multi-tenant)
+3. User fills out a brand form → AI generates a complete brand kit (personality, positioning, color palette, tone of voice, visual style)
+4. User launches a campaign → AI generates 7-14 social posts (hook, caption, CTA, hashtags, image prompt)
+5. User reviews, edits, and regenerates individual posts; can generate AI images per post or bulk-generate all
+6. User exports a brand book PDF or uploads media to the library
 
 ---
 
@@ -28,8 +30,10 @@ A web application where users create brand identities and full social media camp
 │   ├── api-spec/           OpenAPI spec (source of truth for API client)
 │   ├── api-client-react/   TanStack Query hooks (codegen from OpenAPI)
 │   └── integrations-openai-ai-server/  OpenAI client via Replit proxy
+├── docker-compose.yml      Production Docker Compose (app + postgres)
+├── Dockerfile              Node 20 + pnpm multi-stage build
 ├── pnpm-workspace.yaml
-└── README.md               Full project documentation for humans and agents
+└── README.md
 ```
 
 ---
@@ -38,24 +42,32 @@ A web application where users create brand identities and full social media camp
 
 | File | Role |
 |---|---|
-| `artifacts/api-server/src/app.ts` | Express middleware chain (compression, CORS, logging, error handler) |
-| `artifacts/api-server/src/index.ts` | HTTP server entry; sets keepAliveTimeout |
+| `artifacts/api-server/src/app.ts` | Express middleware chain (compression, CORS, rate limiting, logging, static storage, error handler) |
+| `artifacts/api-server/src/index.ts` | HTTP server entry |
+| `artifacts/api-server/src/middlewares/auth.ts` | JWT middleware: requireAuth, optionalAuth, signToken |
+| `artifacts/api-server/src/routes/auth.ts` | POST /api/auth/register, /login, GET /api/auth/me |
+| `artifacts/api-server/src/routes/workspaces.ts` | Workspace CRUD + member management (owner/admin/editor roles) |
 | `artifacts/api-server/src/routes/brands.ts` | All brand endpoints + AI generation |
 | `artifacts/api-server/src/routes/campaigns.ts` | GET /campaigns/:id |
-| `artifacts/api-server/src/routes/posts.ts` | Edit, regenerate, generate image |
-| `artifacts/api-server/src/routes/dashboard.ts` | Parallel DB queries for dashboard |
+| `artifacts/api-server/src/routes/posts.ts` | Edit, regenerate, generate image (saves files to STORAGE_DIR) |
+| `artifacts/api-server/src/routes/jobs.ts` | POST /campaigns/:id/generate-all-images (bulk, PostgreSQL job queue) |
+| `artifacts/api-server/src/routes/media.ts` | Upload logos/images via multer; list media library |
+| `artifacts/api-server/src/routes/export.ts` | GET /brands/:id/export-pdf → PDFKit brand book |
 | `artifacts/api-server/src/lib/ai.ts` | generateBrandKit() + generateCampaign() |
 | `artifacts/api-server/src/lib/asyncHandler.ts` | Wraps async routes, sends errors to global handler |
 | `lib/db/src/index.ts` | pg Pool + Drizzle client (max 10 connections) |
-| `lib/db/src/schema/brands.ts` | brands table |
-| `lib/db/src/schema/campaigns.ts` | campaigns table |
-| `lib/db/src/schema/posts.ts` | posts table |
-| `artifacts/brand-os/src/App.tsx` | Router + QueryClient + lazy page imports |
-| `artifacts/brand-os/src/components/Layout.tsx` | Sidebar + data prefetch on mount |
+| `lib/db/src/schema/index.ts` | Exports all tables: brands, campaigns, posts, users, workspaces, workspace_members, jobs |
+| `artifacts/brand-os/src/App.tsx` | Router + QueryClient + lazy page imports + auth guard |
+| `artifacts/brand-os/src/contexts/AuthContext.tsx` | JWT localStorage auth state + login/register/logout helpers |
+| `artifacts/brand-os/src/components/Layout.tsx` | Sidebar with workspace switcher, user menu, nav links |
+| `artifacts/brand-os/src/pages/Login.tsx` | Login page |
+| `artifacts/brand-os/src/pages/Register.tsx` | Register page |
 | `artifacts/brand-os/src/pages/BrandWizard.tsx` | 4-step brand creation |
 | `artifacts/brand-os/src/pages/BrandKit.tsx` | Brand display + campaign launch |
-| `artifacts/brand-os/src/pages/CampaignWorkspace.tsx` | Post edit/regen/image |
-| `artifacts/brand-os/src/lib/colorExtractor.ts` | Canvas-based logo color extraction |
+| `artifacts/brand-os/src/pages/CampaignWorkspace.tsx` | Post edit/regen/image + Generate All Visuals + Export PDF |
+| `artifacts/brand-os/src/pages/MediaLibrary.tsx` | Upload + browse stored media files |
+| `artifacts/brand-os/src/pages/Team.tsx` | Invite/remove members, manage roles |
+| `artifacts/brand-os/src/pages/Settings.tsx` | Workspace + account settings |
 
 ---
 
@@ -68,6 +80,8 @@ A web application where users create brand identities and full social media camp
 | `AI_INTEGRATIONS_OPENAI_API_KEY` | Replit OpenAI integration | Proxy API key |
 | `PORT` | Replit artifact system | Port for API server (8080) |
 | `BASE_PATH` | Replit artifact system | Vite base path for frontend |
+| `JWT_SECRET` | Optional env var | JWT signing secret (defaults to dev secret) |
+| `STORAGE_DIR` | Optional env var | Directory for uploaded/generated files (default: `cwd/storage`) |
 
 Do NOT hardcode these. Always read from `process.env`.
 
@@ -75,122 +89,136 @@ Do NOT hardcode these. Always read from `process.env`.
 
 ## Database Schema (Drizzle ORM)
 
+### users
+- `id` serial PK
+- `email` text UNIQUE NOT NULL
+- `password_hash` text NOT NULL (bcryptjs)
+- `name` text
+- `created_at` timestamptz
+
+### workspaces
+- `id` serial PK
+- `name` text NOT NULL
+- `slug` text UNIQUE NOT NULL
+- `owner_id` integer FK → users.id
+- `created_at` timestamptz
+
+### workspace_members
+- `id` serial PK
+- `workspace_id` integer FK → workspaces.id CASCADE
+- `user_id` integer FK → users.id CASCADE
+- `role` text: `owner` | `admin` | `editor`
+- `created_at` timestamptz
+
+### jobs
+- `id` serial PK
+- `type` text NOT NULL (e.g. `generate-all-images`)
+- `status` text: `pending` | `running` | `done` | `failed`
+- `payload` jsonb
+- `result` jsonb nullable
+- `error` text nullable
+- `created_at`, `updated_at` timestamptz
+
 ### brands
 - `id` serial PK
+- `workspace_id` integer FK → workspaces.id nullable
 - `company_name` text NOT NULL
 - `company_description` text NOT NULL
 - `industry` text NOT NULL
 - `website_url` text nullable
-- `logo_url` text nullable (base64 JPEG, max 800px)
+- `logo_url` text nullable (base64 JPEG OR `/api/storage/logos/…` path)
 - `status` text NOT NULL default `draft` → `kit_ready` → `active`
-- `brand_kit` jsonb nullable (see structure below)
+- `brand_kit` jsonb nullable
 - `created_at`, `updated_at` timestamptz
 
-**brand_kit JSON:**
-```json
-{
-  "personality": "string",
-  "positioning": "string",
-  "toneOfVoice": "string",
-  "audienceSegments": ["string"],
-  "visualStyle": "tech|luxury|bold|minimal",
-  "colorPalette": { "primary": "#HEX", "secondary": "#HEX", "accent": "#HEX", "background": "#HEX", "text": "#HEX" },
-  "visualStyleRules": "string"
-}
-```
+### campaigns / posts
+(same as before — see original schema)
 
-### campaigns
-- `id` serial PK
-- `brand_id` integer FK → brands.id CASCADE DELETE
-- `title` text
-- `strategy` text
-- `days` jsonb (array of `{ day, objective, postConcept, marketingAngle, cta }`)
-- `created_at`, `updated_at` timestamptz
-
-### posts
-- `id` serial PK
-- `campaign_id` integer FK → campaigns.id CASCADE DELETE
-- `day` integer (1-indexed)
-- `caption` text
-- `hook` text
-- `cta` text
-- `hashtags` text[] (array)
-- `image_prompt` text (DALL-E prompt)
-- `image_url` text nullable (base64 PNG, set on demand)
-- `platform` text default `instagram`
-- `created_at`, `updated_at` timestamptz
-
-**Schema migration:** `cd lib/db && pnpm run push`
+**Schema migration:** `pnpm --filter @workspace/db run push`
 
 ---
 
 ## API Routes Quick Reference
 
 ```
+# Auth
+POST   /api/auth/register        { email, password, name? }  → { token, user }
+POST   /api/auth/login           { email, password }          → { token, user }
+GET    /api/auth/me              (Bearer token)               → user
+
+# Workspaces
+GET    /api/workspaces
+POST   /api/workspaces           { name, slug }
+GET    /api/workspaces/:id
+PATCH  /api/workspaces/:id       { name }
+DELETE /api/workspaces/:id
+POST   /api/workspaces/:id/members    { email, role }
+PATCH  /api/workspaces/:id/members/:userId  { role }
+DELETE /api/workspaces/:id/members/:userId
+
+# Brands
 GET    /api/health
 GET    /api/dashboard/summary
 GET    /api/brands
-POST   /api/brands                        { companyName, companyDescription, industry, websiteUrl?, logoUrl?, brandColors? }
+POST   /api/brands               { companyName, companyDescription, industry, websiteUrl?, logoUrl?, brandColors? }
 GET    /api/brands/:id
-PATCH  /api/brands/:id                    partial brand fields
+PATCH  /api/brands/:id
 DELETE /api/brands/:id
-POST   /api/brands/:id/generate-kit       { brandColors?: string[] }
-POST   /api/brands/:id/generate-campaign  { brief?: string, postCount?: number (1-14) }
+POST   /api/brands/:id/generate-kit
+POST   /api/brands/:id/generate-campaign  { brief?, postCount? }
 GET    /api/brands/:id/campaigns
 GET    /api/brands/:id/stats
+GET    /api/brands/:id/export-pdf          → PDF download (PDFKit)
+
+# Campaigns / Posts
 GET    /api/campaigns/:id
 GET    /api/posts/:id
-PATCH  /api/posts/:id                     { caption?, hook?, cta?, hashtags?, imagePrompt?, platform? }
+PATCH  /api/posts/:id
 POST   /api/posts/:id/regenerate
-POST   /api/posts/:id/generate-image
+POST   /api/posts/:id/generate-image       → saves file to STORAGE_DIR
+POST   /api/campaigns/:id/generate-all-images  → enqueues job
+
+# Media
+POST   /api/media/upload         multipart: field=file (logo or image)
+GET    /api/media                list uploaded files
+GET    /api/storage/*            static file serving for stored files
 ```
 
-All routes wrapped with `asyncHandler()`. Errors go to global middleware → `{ error: "message" }`.
+---
+
+## File Storage
+
+- All generated images and uploaded files saved to `STORAGE_DIR` (default: `<cwd>/storage`)
+- Served statically at `/api/storage/*`
+- Image URLs stored as `/api/storage/images/post-{id}-{ts}.png` (not base64)
+- Logo uploads go to `storage/logos/`, campaign images to `storage/images/`
 
 ---
 
-## AI Functions
+## Auth System
 
-### generateBrandKit(companyName, companyDescription, industry, brandColors?)
-- Model: `gpt-5-nano`, max_tokens: 8192
-- Returns structured brand kit JSON
-- If brandColors provided → uses them as palette foundation
-- On JSON parse failure → falls back to buildFallbackKit()
-
-### generateCampaign(companyName, companyDescription, industry, brandKit, brief?, postCount=7)
-- Model: `gpt-5-nano`, max_tokens: 8192
-- postCount clamped to 1-14
-- Returns `{ title, strategy, days[], posts[] }`
-- On JSON parse failure → falls back to buildFallbackCampaign()
-
-### Image generation (posts route)
-- Model: `gpt-image-1`, size: 1024x1024
-- Called via `generateImageBuffer(imagePrompt, "1024x1024")` from integrations package
-- Saves as base64 PNG data URL in `posts.image_url`
+- JWT (jsonwebtoken) + bcryptjs password hashing
+- Token stored in `localStorage` as `brand_os_token`
+- `requireAuth` middleware verifies Bearer token on protected routes
+- `optionalAuth` for routes that work logged in or not
+- AuthContext in React provides `user`, `login()`, `register()`, `logout()`
+- Default dev JWT secret: `"dev-secret-change-in-production"` — set `JWT_SECRET` env var in production
 
 ---
 
-## Frontend Patterns
+## Rate Limiting
 
-### Lazy loading
-All pages use `React.lazy()` + `<Suspense>`. Add new pages the same way in `App.tsx`.
+- Global: 200 req / 15 min per IP (express-rate-limit)
+- AI routes (`/api/brands/*/generate-*`, `/api/posts/*/regenerate`, `/api/posts/*/generate-image`): 30 req / 15 min per IP
 
-### Query hooks
-Import from `@workspace/api-client-react`. Generated automatically from OpenAPI spec.
-Do NOT write raw `fetch()` calls in pages — always use the generated hooks.
+---
 
-### Cache settings (QueryClient)
-- `staleTime: 5 minutes` — data is considered fresh for 5 min
-- `gcTime: 15 minutes` — unused data kept in memory for 15 min
-- `refetchOnWindowFocus: false` — no auto-refetch on tab focus
-- After mutations, invalidate relevant query keys manually
+## Job Queue
 
-### Data prefetch on Layout mount
-`Layout.tsx` prefetches `/api/dashboard/summary` and `/api/brands` on mount using raw fetch + `queryClient.setQueryData()`. This makes Dashboard feel instant.
-
-### Logo color extraction
-`lib/colorExtractor.ts` → `extractColorsFromDataUrl(dataUrl, n)` → returns `string[]` of hex colors.
-Uses HTML5 Canvas to sample pixels and find dominant colors via k-means-like clustering.
+- PostgreSQL `jobs` table as lightweight queue
+- `/api/campaigns/:id/generate-all-images` → inserts job, runs background generation
+- Up to 3 concurrent image generation jobs (Promise.allSettled with concurrency limit)
+- Status polling not yet implemented (refresh page to see results)
 
 ---
 
@@ -198,12 +226,31 @@ Uses HTML5 Canvas to sample pixels and find dominant colors via k-means-like clu
 
 | Path | Page |
 |---|---|
-| `/` | Dashboard |
-| `/brands/new` | BrandWizard (4 steps) |
+| `/login` | Login |
+| `/register` | Register |
+| `/` | Dashboard (auth-protected) |
+| `/brands/new` | BrandWizard |
 | `/brands/:id` | BrandKit |
 | `/brands/:id/edit` | BrandEdit |
 | `/brands/:id/campaigns` | CampaignList |
-| `/campaigns/:id` | CampaignWorkspace |
+| `/campaigns/:id` | CampaignWorkspace (Generate All Visuals + Export PDF) |
+| `/media` | MediaLibrary |
+| `/team` | Team management |
+| `/settings` | Settings |
+
+All routes except `/login` and `/register` require authentication. Unauthenticated users are redirected to `/login`.
+
+---
+
+## Docker Deployment
+
+```bash
+docker-compose up -d
+```
+
+- `Dockerfile`: Node 20, pnpm build, production start
+- `docker-compose.yml`: app (port 3000→8080) + postgres with healthcheck + named volumes
+- Set `JWT_SECRET`, `STORAGE_DIR`, and `DATABASE_URL` environment variables in production
 
 ---
 
@@ -211,26 +258,23 @@ Uses HTML5 Canvas to sample pixels and find dominant colors via k-means-like clu
 
 | Workflow | Command | Port |
 |---|---|---|
-| API Server | `PORT=8080 pnpm --filter @workspace/api-server run dev` | 8080 |
-| Frontend | `pnpm --filter @workspace/brand-os run dev` | dynamic ($PORT) |
+| Start application | `BASE_PATH=/ PORT=18565 pnpm --filter @workspace/brand-os run dev & PORT=8080 pnpm --filter @workspace/api-server run dev` | 18565 (FE) + 8080 (API) |
 
-Both workflows must be running. The frontend proxies API calls through the Replit preview proxy.
+**Important:** Only the "Start application" workflow should be running. The artifact-specific sub-workflows (`artifacts/api-server: API Server`, `artifacts/brand-os: web`) conflict on ports and should remain stopped.
 
 ---
 
 ## How to Add a New Feature
 
 ### New API endpoint:
-1. Add Zod schemas to `lib/api-zod/src/`
-2. Add route handler in `artifacts/api-server/src/routes/` using `asyncHandler()`
-3. Mount in `artifacts/api-server/src/routes/index.ts`
-4. Update `lib/api-spec/` OpenAPI spec
-5. Run `pnpm --filter @workspace/api-client-react run codegen`
+1. Add route handler in `artifacts/api-server/src/routes/` using `asyncHandler()`
+2. Mount in `artifacts/api-server/src/routes/index.ts`
+3. Optionally add to `lib/api-spec/` OpenAPI spec and run codegen
 
-### New database column:
+### New database column/table:
 1. Edit schema in `lib/db/src/schema/`
-2. Run `cd lib/db && pnpm run push`
-3. Update Zod schemas + routes
+2. Export from `lib/db/src/schema/index.ts`
+3. Run `pnpm --filter @workspace/db run push`
 
 ### New frontend page:
 1. Create component in `artifacts/brand-os/src/pages/`
@@ -241,8 +285,6 @@ Both workflows must be running. The frontend proxies API calls through the Repli
 
 ## Known Issues / Tech Debt
 
-- Logo and generated images stored as base64 in PostgreSQL — fine for MVP, needs object storage (S3/R2) at scale
-- No authentication — all data is public; needs Clerk or Replit Auth for multi-tenant
-- No rate limiting on API — add `express-rate-limit` before public exposure
-- Campaign generation takes 20-40s — currently blocks with a loading overlay; should be background job with polling
-- Bulk image generation (all posts at once) not implemented yet
+- Job queue polling not implemented — user must refresh page to see bulk image generation results
+- Workspace switcher in sidebar is UI-only — not yet wired to filter brands by workspace
+- Logo uploads accept base64 (legacy) or file path — ensure consistency when editing brand

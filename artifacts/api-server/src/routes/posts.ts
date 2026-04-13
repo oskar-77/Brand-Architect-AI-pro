@@ -10,6 +10,12 @@ import {
 } from "@workspace/api-zod";
 import { openai, generateImageBuffer } from "@workspace/integrations-openai-ai-server";
 import { asyncHandler } from "../lib/asyncHandler";
+import path from "path";
+import fs from "fs";
+
+const STORAGE_DIR = process.env.STORAGE_DIR ?? path.join(process.cwd(), "storage");
+const IMAGES_DIR = path.join(STORAGE_DIR, "images");
+fs.mkdirSync(IMAGES_DIR, { recursive: true });
 
 const router: IRouter = Router();
 
@@ -26,11 +32,7 @@ router.get("/posts/:id", asyncHandler(async (req, res) => {
     return;
   }
 
-  res.json({
-    ...post,
-    createdAt: post.createdAt.toISOString(),
-    updatedAt: post.updatedAt.toISOString(),
-  });
+  res.json({ ...post, createdAt: post.createdAt.toISOString(), updatedAt: post.updatedAt.toISOString() });
 }));
 
 router.patch("/posts/:id", asyncHandler(async (req, res) => {
@@ -54,22 +56,14 @@ router.patch("/posts/:id", asyncHandler(async (req, res) => {
   if (parsed.data.imagePrompt !== undefined) updateData.imagePrompt = parsed.data.imagePrompt;
   if (parsed.data.platform !== undefined) updateData.platform = parsed.data.platform;
 
-  const [post] = await db
-    .update(postsTable)
-    .set(updateData)
-    .where(eq(postsTable.id, params.data.id))
-    .returning();
+  const [post] = await db.update(postsTable).set(updateData).where(eq(postsTable.id, params.data.id)).returning();
 
   if (!post) {
     res.status(404).json({ error: "Post not found" });
     return;
   }
 
-  res.json({
-    ...post,
-    createdAt: post.createdAt.toISOString(),
-    updatedAt: post.updatedAt.toISOString(),
-  });
+  res.json({ ...post, createdAt: post.createdAt.toISOString(), updatedAt: post.updatedAt.toISOString() });
 }));
 
 router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
@@ -86,7 +80,11 @@ router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
   }
 
   const imageBuffer = await generateImageBuffer(post.imagePrompt, "1024x1024");
-  const imageUrl = `data:image/png;base64,${imageBuffer.toString("base64")}`;
+  const filename = `post-${post.id}-${Date.now()}.png`;
+  const filePath = path.join(IMAGES_DIR, filename);
+  fs.writeFileSync(filePath, imageBuffer);
+
+  const imageUrl = `/api/storage/images/${filename}`;
 
   const [updated] = await db
     .update(postsTable)
@@ -94,11 +92,7 @@ router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
     .where(eq(postsTable.id, params.data.id))
     .returning();
 
-  res.json({
-    ...updated,
-    createdAt: updated.createdAt.toISOString(),
-    updatedAt: updated.updatedAt.toISOString(),
-  });
+  res.json({ ...updated, createdAt: updated.createdAt.toISOString(), updatedAt: updated.updatedAt.toISOString() });
 }));
 
 router.post("/posts/:id/regenerate", asyncHandler(async (req, res) => {
@@ -155,13 +149,7 @@ Return ONLY a JSON object with these fields:
   "imagePrompt": "detailed AI image prompt: scene description, ${style} aesthetic, ${primaryColor} color accent, cinematic lighting, no text no logos, top-right corner empty for logo, 16:9 ultra-high quality"
 }`;
 
-  let newContent: {
-    hook: string;
-    caption: string;
-    cta: string;
-    hashtags: string[];
-    imagePrompt: string;
-  };
+  let newContent: { hook: string; caption: string; cta: string; hashtags: string[]; imagePrompt: string };
 
   try {
     const response = await openai.chat.completions.create({
@@ -194,11 +182,7 @@ Return ONLY a JSON object with these fields:
     .where(eq(postsTable.id, params.data.id))
     .returning();
 
-  res.json({
-    ...updated,
-    createdAt: updated.createdAt.toISOString(),
-    updatedAt: updated.updatedAt.toISOString(),
-  });
+  res.json({ ...updated, createdAt: updated.createdAt.toISOString(), updatedAt: updated.updatedAt.toISOString() });
 }));
 
 export default router;

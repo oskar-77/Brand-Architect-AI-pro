@@ -1,8 +1,8 @@
 import { useParams, Link } from "wouter";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useGetCampaign, useUpdatePost, useRegeneratePost, useGeneratePostImage, getGetCampaignQueryKey, getGetPostQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Calendar, Edit3, Check, X, RefreshCw, Loader2, Hash, Image as ImageIcon, Megaphone, Sparkles, Wand2 } from "lucide-react";
+import { ArrowLeft, Calendar, Edit3, Check, X, RefreshCw, Loader2, Hash, Image as ImageIcon, Megaphone, Sparkles, Wand2, Zap, FileText } from "lucide-react";
 import type { SocialPost } from "@workspace/api-client-react";
 
 function PostCard({ post, onSave, onRegenerate, onGenerateImage }: {
@@ -234,6 +234,9 @@ export default function CampaignWorkspace() {
   const campaignId = parseInt(params.id, 10);
   const queryClient = useQueryClient();
 
+  const [generatingAll, setGeneratingAll] = useState(false);
+  const [allProgress, setAllProgress] = useState<{ done: number; total: number } | null>(null);
+
   const { data: campaign, isLoading } = useGetCampaign(campaignId, {
     query: { enabled: !!campaignId, queryKey: getGetCampaignQueryKey(campaignId) },
   });
@@ -241,6 +244,40 @@ export default function CampaignWorkspace() {
   const updatePost = useUpdatePost();
   const regeneratePost = useRegeneratePost();
   const generatePostImage = useGeneratePostImage();
+
+  const baseUrl = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+
+  const handleGenerateAllImages = useCallback(async () => {
+    if (!campaign?.posts?.length) return;
+    setGeneratingAll(true);
+    setAllProgress({ done: 0, total: campaign.posts.length });
+    try {
+      const res = await fetch(`${baseUrl}/api/campaigns/${campaignId}/generate-all-images`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to start bulk generation");
+
+      const postsWithoutImages = campaign.posts.filter((p) => !p.imageUrl);
+      let done = 0;
+
+      await Promise.all(
+        postsWithoutImages.map(async (post) => {
+          try {
+            await new Promise((resolve) => setTimeout(resolve, done * 2000));
+            done++;
+            setAllProgress({ done, total: campaign.posts!.length });
+          } catch {}
+        })
+      );
+
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: getGetCampaignQueryKey(campaignId) });
+        setGeneratingAll(false);
+        setAllProgress(null);
+      }, 5000);
+    } catch {
+      setGeneratingAll(false);
+      setAllProgress(null);
+    }
+  }, [campaign, campaignId, queryClient, baseUrl]);
 
   async function handleSavePost(id: number, data: Partial<SocialPost>) {
     await updatePost.mutateAsync({ id, data: {
@@ -326,10 +363,48 @@ export default function CampaignWorkspace() {
 
       {/* Posts */}
       <div>
-        <h2 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-4">
-          <Megaphone className="w-4 h-4 text-muted-foreground" />
-          Social Posts ({campaign.posts?.length ?? 0})
-        </h2>
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Megaphone className="w-4 h-4 text-muted-foreground" />
+            Social Posts ({campaign.posts?.length ?? 0})
+          </h2>
+          <div className="flex items-center gap-2">
+            <a
+              href={`${baseUrl}/api/brands/${campaign.brandId}/export-pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Export Brand Book PDF
+            </a>
+            <button
+              onClick={handleGenerateAllImages}
+              disabled={generatingAll}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
+            >
+              {generatingAll ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  {allProgress ? `Queued ${allProgress.done}/${allProgress.total}` : "Starting..."}
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3.5 h-3.5" />
+                  Generate All Visuals
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {generatingAll && (
+          <div className="mb-4 p-3 rounded-lg bg-primary/5 border border-primary/20 text-sm text-primary flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Image generation queued for all posts. Images will appear as they complete — refresh to see progress.
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {campaign.posts
             ?.sort((a, b) => a.day - b.day)

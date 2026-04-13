@@ -1,9 +1,10 @@
-import { pgTable, text, serial, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const brandsTable = pgTable("brands", {
   id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id"),
   companyName: text("company_name").notNull(),
   companyDescription: text("company_description").notNull(),
   industry: text("industry").notNull(),
