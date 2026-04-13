@@ -54,6 +54,7 @@ A self-hosted SaaS platform where teams create brand identities and full social 
 | `artifacts/api-server/src/routes/media.ts` | Upload logos/images via multer; list media library |
 | `artifacts/api-server/src/routes/export.ts` | GET /brands/:id/export-pdf → PDFKit brand book |
 | `artifacts/api-server/src/lib/ai.ts` | generateBrandKit() + generateCampaign() |
+| `artifacts/api-server/src/lib/workspace.ts` | Multi-tenancy helpers: getUserWorkspaceIds(), getBrandForUser(), getCampaignForUser(), getPostForUser() |
 | `artifacts/api-server/src/lib/asyncHandler.ts` | Wraps async routes, sends errors to global handler |
 | `lib/db/src/index.ts` | pg Pool + Drizzle client (max 10 connections) |
 | `lib/db/src/schema/index.ts` | Exports all tables: brands, campaigns, posts, users, workspaces, workspace_members, jobs |
@@ -80,8 +81,10 @@ A self-hosted SaaS platform where teams create brand identities and full social 
 | `AI_INTEGRATIONS_OPENAI_API_KEY` | Replit OpenAI integration | Proxy API key |
 | `PORT` | Replit artifact system | Port for API server (8080) |
 | `BASE_PATH` | Replit artifact system | Vite base path for frontend |
-| `JWT_SECRET` | Optional env var | JWT signing secret (defaults to dev secret) |
+| `JWT_SECRET` | **Required** shared env var | JWT signing secret — no fallback, server throws at startup if missing |
 | `STORAGE_DIR` | Optional env var | Directory for uploaded/generated files (default: `cwd/storage`) |
+| `REPLIT_DOMAINS` | Replit auto-set | Comma-separated public domains — used to configure CORS allowed origins |
+| `REPLIT_DEV_DOMAIN` | Replit auto-set | Dev tunnel domain — also added to CORS allowed origins |
 
 Do NOT hardcode these. Always read from `process.env`.
 
@@ -199,10 +202,11 @@ GET    /api/storage/*            static file serving for stored files
 
 - JWT (jsonwebtoken) + bcryptjs password hashing
 - Token stored in `localStorage` as `brand_os_token`
-- `requireAuth` middleware verifies Bearer token on protected routes
-- `optionalAuth` for routes that work logged in or not
-- AuthContext in React provides `user`, `login()`, `register()`, `logout()`
-- Default dev JWT secret: `"dev-secret-change-in-production"` — set `JWT_SECRET` env var in production
+- `requireAuth` middleware verifies Bearer token on **all** data routes (brands, campaigns, posts, dashboard, jobs, media, export)
+- `optionalAuth` kept only for truly public routes (none currently)
+- `JWT_SECRET` is required — server throws at startup if not set, no insecure fallback
+- `setAuthTokenGetter(getToken)` wired in `AuthContext.tsx` so generated TanStack Query hooks automatically include `Authorization: Bearer <token>` on every request
+- AuthContext provides `user`, `workspace`, `workspaces`, `login()`, `register()`, `logout()`, `switchWorkspace()`
 
 ---
 
@@ -283,8 +287,18 @@ docker-compose up -d
 
 ---
 
+## Security Posture
+
+- **CORS**: Restricted to `localhost` + Replit's `REPLIT_DOMAINS` / `REPLIT_DEV_DOMAIN`. No wildcard `*`.
+- **Auth**: All data API routes require a valid JWT via `requireAuth`. No routes expose data without authentication.
+- **Multi-tenancy**: Brands are scoped to workspace; all brand/campaign/post CRUD verifies ownership via `lib/workspace.ts` helpers before acting. Users can only see/modify resources in workspaces they belong to.
+- **JWT secret**: No insecure dev fallback. `JWT_SECRET` must be set or server exits.
+- **Token propagation**: `setAuthTokenGetter(getToken)` configured at app startup so all generated API hooks include the auth token automatically.
+- **Cloud storage**: Still uses local filesystem (`STORAGE_DIR`). For production, consider migrating to Replit Object Storage or AWS S3.
+- **Message queue**: Uses PostgreSQL `jobs` table + in-process workers (concurrency 2). Suitable for light load; consider Redis/RabbitMQ for high-volume production.
+
 ## Known Issues / Tech Debt
 
 - Job queue polling not implemented — user must refresh page to see bulk image generation results
-- Workspace switcher in sidebar is UI-only — not yet wired to filter brands by workspace
 - Logo uploads accept base64 (legacy) or file path — ensure consistency when editing brand
+- Cloud image storage uses local filesystem — not durable across container restarts in stateless deployments

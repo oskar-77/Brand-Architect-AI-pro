@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, count, sql } from "drizzle-orm";
+import { eq, desc, count, sql, inArray } from "drizzle-orm";
 import { db, brandsTable, campaignsTable, postsTable } from "@workspace/db";
 import {
   CreateBrandBody,
@@ -14,10 +14,19 @@ import {
 } from "@workspace/api-zod";
 import { generateBrandKit, generateCampaign } from "../lib/ai";
 import { asyncHandler } from "../lib/asyncHandler";
+import { requireAuth } from "../middlewares/auth";
+import { getUserWorkspaceIds, getBrandForUser, isMemberOfWorkspace } from "../lib/workspace";
+import { z } from "zod";
 
 const router: IRouter = Router();
 
-router.get("/brands", asyncHandler(async (_req, res) => {
+router.get("/brands", requireAuth, asyncHandler(async (req, res) => {
+  const workspaceIds = await getUserWorkspaceIds(req.user!.userId);
+  if (!workspaceIds.length) {
+    res.json([]);
+    return;
+  }
+
   const brands = await db
     .select({
       id: brandsTable.id,
@@ -29,20 +38,44 @@ router.get("/brands", asyncHandler(async (_req, res) => {
       updatedAt: brandsTable.updatedAt,
     })
     .from(brandsTable)
+    .where(inArray(brandsTable.workspaceId, workspaceIds))
     .orderBy(desc(brandsTable.createdAt));
+
   res.json(brands);
 }));
 
-router.post("/brands", asyncHandler(async (req, res) => {
-  const parsed = CreateBrandBody.safeParse(req.body);
+const CreateBrandBodyWithWorkspace = CreateBrandBody.extend({
+  workspaceId: z.number().int().positive().optional(),
+});
+
+router.post("/brands", requireAuth, asyncHandler(async (req, res) => {
+  const parsed = CreateBrandBodyWithWorkspace.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
 
+  let workspaceId = parsed.data.workspaceId;
+
+  if (workspaceId !== undefined) {
+    const allowed = await isMemberOfWorkspace(req.user!.userId, workspaceId);
+    if (!allowed) {
+      res.status(403).json({ error: "Access denied to this workspace" });
+      return;
+    }
+  } else {
+    const workspaceIds = await getUserWorkspaceIds(req.user!.userId);
+    if (!workspaceIds.length) {
+      res.status(400).json({ error: "You must belong to a workspace to create a brand" });
+      return;
+    }
+    workspaceId = workspaceIds[0];
+  }
+
   const [brand] = await db
     .insert(brandsTable)
     .values({
+      workspaceId,
       companyName: parsed.data.companyName,
       companyDescription: parsed.data.companyDescription,
       industry: parsed.data.industry,
@@ -60,15 +93,14 @@ router.post("/brands", asyncHandler(async (req, res) => {
   });
 }));
 
-router.get("/brands/:id", asyncHandler(async (req, res) => {
+router.get("/brands/:id", requireAuth, asyncHandler(async (req, res) => {
   const params = GetBrandParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
-  const [brand] = await db.select().from(brandsTable).where(eq(brandsTable.id, params.data.id));
-
+  const brand = await getBrandForUser(params.data.id, req.user!.userId);
   if (!brand) {
     res.status(404).json({ error: "Brand not found" });
     return;
@@ -82,7 +114,7 @@ router.get("/brands/:id", asyncHandler(async (req, res) => {
   });
 }));
 
-router.patch("/brands/:id", asyncHandler(async (req, res) => {
+router.patch("/brands/:id", requireAuth, asyncHandler(async (req, res) => {
   const params = UpdateBrandParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -92,6 +124,12 @@ router.patch("/brands/:id", asyncHandler(async (req, res) => {
   const parsed = UpdateBrandBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const existing = await getBrandForUser(params.data.id, req.user!.userId);
+  if (!existing) {
+    res.status(404).json({ error: "Brand not found" });
     return;
   }
 
@@ -108,11 +146,6 @@ router.patch("/brands/:id", asyncHandler(async (req, res) => {
     .where(eq(brandsTable.id, params.data.id))
     .returning();
 
-  if (!brand) {
-    res.status(404).json({ error: "Brand not found" });
-    return;
-  }
-
   res.json({
     ...brand,
     brandKit: brand.brandKit ?? null,
@@ -121,31 +154,31 @@ router.patch("/brands/:id", asyncHandler(async (req, res) => {
   });
 }));
 
-router.delete("/brands/:id", asyncHandler(async (req, res) => {
+router.delete("/brands/:id", requireAuth, asyncHandler(async (req, res) => {
   const params = DeleteBrandParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
-  const [brand] = await db.delete(brandsTable).where(eq(brandsTable.id, params.data.id)).returning();
-
-  if (!brand) {
+  const existing = await getBrandForUser(params.data.id, req.user!.userId);
+  if (!existing) {
     res.status(404).json({ error: "Brand not found" });
     return;
   }
 
+  await db.delete(brandsTable).where(eq(brandsTable.id, params.data.id));
   res.sendStatus(204);
 }));
 
-router.post("/brands/:id/generate-kit", asyncHandler(async (req, res) => {
+router.post("/brands/:id/generate-kit", requireAuth, asyncHandler(async (req, res) => {
   const params = GenerateBrandKitParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
-  const [brand] = await db.select().from(brandsTable).where(eq(brandsTable.id, params.data.id));
+  const brand = await getBrandForUser(params.data.id, req.user!.userId);
   if (!brand) {
     res.status(404).json({ error: "Brand not found" });
     return;
@@ -168,7 +201,7 @@ router.post("/brands/:id/generate-kit", asyncHandler(async (req, res) => {
   });
 }));
 
-router.post("/brands/:id/generate-campaign", asyncHandler(async (req, res) => {
+router.post("/brands/:id/generate-campaign", requireAuth, asyncHandler(async (req, res) => {
   const params = GenerateCampaignParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -179,7 +212,7 @@ router.post("/brands/:id/generate-campaign", asyncHandler(async (req, res) => {
   const brief = bodyParsed.success ? (bodyParsed.data.brief ?? undefined) : undefined;
   const postCount = bodyParsed.success ? (bodyParsed.data.postCount ?? 7) : 7;
 
-  const [brand] = await db.select().from(brandsTable).where(eq(brandsTable.id, params.data.id));
+  const brand = await getBrandForUser(params.data.id, req.user!.userId);
   if (!brand) {
     res.status(404).json({ error: "Brand not found" });
     return;
@@ -246,11 +279,17 @@ router.post("/brands/:id/generate-campaign", asyncHandler(async (req, res) => {
   });
 }));
 
-router.get("/brands/:id/campaigns", asyncHandler(async (req, res) => {
+router.get("/brands/:id/campaigns", requireAuth, asyncHandler(async (req, res) => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const brandId = parseInt(raw, 10);
   if (isNaN(brandId)) {
     res.status(400).json({ error: "Invalid brand id" });
+    return;
+  }
+
+  const brand = await getBrandForUser(brandId, req.user!.userId);
+  if (!brand) {
+    res.status(404).json({ error: "Brand not found" });
     return;
   }
 
@@ -286,14 +325,14 @@ router.get("/brands/:id/campaigns", asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
-router.get("/brands/:id/stats", asyncHandler(async (req, res) => {
+router.get("/brands/:id/stats", requireAuth, asyncHandler(async (req, res) => {
   const params = GetBrandStatsParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
-  const [brand] = await db.select().from(brandsTable).where(eq(brandsTable.id, params.data.id));
+  const brand = await getBrandForUser(params.data.id, req.user!.userId);
   if (!brand) {
     res.status(404).json({ error: "Brand not found" });
     return;

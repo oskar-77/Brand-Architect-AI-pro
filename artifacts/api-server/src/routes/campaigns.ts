@@ -1,21 +1,23 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, campaignsTable, postsTable } from "@workspace/db";
+import { db, postsTable } from "@workspace/db";
 import {
   GetCampaignParams,
 } from "@workspace/api-zod";
 import { asyncHandler } from "../lib/asyncHandler";
+import { requireAuth } from "../middlewares/auth";
+import { getCampaignForUser } from "../lib/workspace";
 
 const router: IRouter = Router();
 
-router.get("/campaigns/:id", asyncHandler(async (req, res) => {
+router.get("/campaigns/:id", requireAuth, asyncHandler(async (req, res) => {
   const params = GetCampaignParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
-  const [campaign] = await db.select().from(campaignsTable).where(eq(campaignsTable.id, params.data.id));
+  const campaign = await getCampaignForUser(params.data.id, req.user!.userId);
   if (!campaign) {
     res.status(404).json({ error: "Campaign not found" });
     return;

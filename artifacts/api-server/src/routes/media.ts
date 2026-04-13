@@ -2,10 +2,9 @@ import { Router, type IRouter } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { eq, and, isNull, inArray } from "drizzle-orm";
 import { db, brandsTable } from "@workspace/db";
 import { asyncHandler } from "../lib/asyncHandler";
-import { optionalAuth } from "../middlewares/auth";
+import { requireAuth } from "../middlewares/auth";
 
 const STORAGE_DIR = process.env.STORAGE_DIR ?? path.join(process.cwd(), "storage");
 const LOGOS_DIR = path.join(STORAGE_DIR, "logos");
@@ -58,7 +57,7 @@ export function saveBase64Image(base64Data: string, filename: string): string {
 
 const router: IRouter = Router();
 
-router.post("/media/upload-logo", optionalAuth, (req, res, next) => {
+router.post("/media/upload-logo", requireAuth, (req, res, next) => {
   uploadLogo(req, res, (err) => {
     if (err) {
       res.status(400).json({ error: err.message });
@@ -75,7 +74,7 @@ router.post("/media/upload-logo", optionalAuth, (req, res, next) => {
   res.json({ url, filename: req.file.filename });
 }));
 
-router.post("/media/upload-image", optionalAuth, (req, res, next) => {
+router.post("/media/upload-image", requireAuth, (req, res, next) => {
   uploadImage(req, res, (err) => {
     if (err) {
       res.status(400).json({ error: err.message });
@@ -92,11 +91,9 @@ router.post("/media/upload-image", optionalAuth, (req, res, next) => {
   res.json({ url, filename: req.file.filename });
 }));
 
-router.get("/media/library", optionalAuth, asyncHandler(async (req, res) => {
-  const brandId = req.query.brandId ? parseInt(req.query.brandId as string, 10) : null;
-
+router.get("/media/library", requireAuth, asyncHandler(async (req, res) => {
   const imagesDir = IMAGES_DIR;
-  let files: Array<{ filename: string; url: string; size: number; createdAt: string; brandId?: number | null }> = [];
+  let files: Array<{ filename: string; url: string; size: number; createdAt: string }> = [];
 
   if (fs.existsSync(imagesDir)) {
     const dirFiles = fs.readdirSync(imagesDir);
@@ -121,7 +118,7 @@ router.get("/media/library", optionalAuth, asyncHandler(async (req, res) => {
   res.json(files);
 }));
 
-router.delete("/media/:filename", optionalAuth, asyncHandler(async (req, res) => {
+router.delete("/media/:filename", requireAuth, asyncHandler(async (req, res) => {
   const filename = req.params.filename;
   const safeFilename = path.basename(filename);
   const filePath = path.join(IMAGES_DIR, safeFilename);

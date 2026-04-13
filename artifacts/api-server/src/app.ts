@@ -29,7 +29,49 @@ app.use(
   }),
 );
 
-app.use(cors());
+const allowedOrigins = buildAllowedOrigins();
+
+function buildAllowedOrigins(): (string | RegExp)[] {
+  const origins: (string | RegExp)[] = [
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+  ];
+
+  const replitDomains = process.env.REPLIT_DOMAINS;
+  if (replitDomains) {
+    for (const domain of replitDomains.split(",").map((d) => d.trim()).filter(Boolean)) {
+      origins.push(new RegExp(`^https?:\\/\\/${domain.replace(/\./g, "\\.")}(:\\d+)?$`));
+    }
+  }
+
+  const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (replitDevDomain) {
+    origins.push(new RegExp(`^https?:\\/\\/${replitDevDomain.replace(/\./g, "\\.")}(:\\d+)?$`));
+  }
+
+  return origins;
+}
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      const allowed = allowedOrigins.some((pattern) =>
+        typeof pattern === "string" ? pattern === origin : pattern.test(origin),
+      );
+      if (allowed) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin '${origin}' not allowed`));
+      }
+    },
+    credentials: true,
+  }),
+);
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 

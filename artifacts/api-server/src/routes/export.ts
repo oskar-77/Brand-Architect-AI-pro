@@ -2,12 +2,11 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, brandsTable, campaignsTable, postsTable } from "@workspace/db";
 import { asyncHandler } from "../lib/asyncHandler";
-import { optionalAuth } from "../middlewares/auth";
+import { requireAuth } from "../middlewares/auth";
+import { getBrandForUser } from "../lib/workspace";
 import PDFDocument from "pdfkit";
 import https from "https";
 import http from "http";
-import fs from "fs";
-import path from "path";
 
 const router: IRouter = Router();
 
@@ -32,14 +31,14 @@ function hexToRgb(hex: string): [number, number, number] {
   ] : [99, 102, 241];
 }
 
-router.get("/brands/:id/export-pdf", optionalAuth, asyncHandler(async (req, res) => {
+router.get("/brands/:id/export-pdf", requireAuth, asyncHandler(async (req, res) => {
   const brandId = parseInt(req.params.id, 10);
   if (isNaN(brandId)) {
     res.status(400).json({ error: "Invalid brand id" });
     return;
   }
 
-  const [brand] = await db.select().from(brandsTable).where(eq(brandsTable.id, brandId));
+  const brand = await getBrandForUser(brandId, req.user!.userId);
   if (!brand) {
     res.status(404).json({ error: "Brand not found" });
     return;
@@ -80,14 +79,12 @@ router.get("/brands/:id/export-pdf", optionalAuth, asyncHandler(async (req, res)
 
   const pageWidth = doc.page.width - 120;
 
-  // Cover page
   doc.rect(0, 0, doc.page.width, doc.page.height).fill(`${primaryColor}`);
   doc.fillColor("white").font("Helvetica-Bold").fontSize(36).text(brand.companyName, 60, 180, { width: pageWidth });
   doc.font("Helvetica").fontSize(18).fillColor("rgba(255,255,255,0.8)").text("Brand Identity Book", 60, 240);
   doc.fontSize(12).fillColor("rgba(255,255,255,0.6)").text(brand.industry, 60, 275);
   doc.fontSize(10).fillColor("rgba(255,255,255,0.4)").text(`Generated ${new Date().toLocaleDateString()}`, 60, doc.page.height - 80);
 
-  // Brand Overview
   doc.addPage();
   doc.rect(0, 0, doc.page.width, 8).fill(primaryColor);
   doc.fillColor("#111").font("Helvetica-Bold").fontSize(24).text("Brand Overview", 60, 50);
@@ -126,7 +123,6 @@ router.get("/brands/:id/export-pdf", optionalAuth, asyncHandler(async (req, res)
     }
   }
 
-  // Color Palette
   doc.addPage();
   doc.rect(0, 0, doc.page.width, 8).fill(primaryColor);
   doc.fillColor("#111").font("Helvetica-Bold").fontSize(24).text("Color Palette", 60, 50);
@@ -150,14 +146,12 @@ router.get("/brands/:id/export-pdf", optionalAuth, asyncHandler(async (req, res)
 
     colors.forEach((c, i) => {
       const x = startX + i * (swatchW + gap);
-      const [r, g, b] = hexToRgb(c.hex);
       doc.rect(x, startY, swatchW, swatchH).fill(c.hex);
       doc.fillColor("#111").font("Helvetica-Bold").fontSize(9).text(c.label, x, startY + swatchH + 8, { width: swatchW, align: "center" });
       doc.fillColor("#6b7280").font("Helvetica").fontSize(8).text(c.hex.toUpperCase(), x, startY + swatchH + 22, { width: swatchW, align: "center" });
     });
   }
 
-  // Visual Style
   y = 280;
   if (kit?.visualStyle) {
     doc.fillColor(primaryColor).font("Helvetica-Bold").fontSize(14).text(`Visual Style: ${kit.visualStyle.toUpperCase()}`, 60, y);
@@ -169,7 +163,6 @@ router.get("/brands/:id/export-pdf", optionalAuth, asyncHandler(async (req, res)
     y += doc.heightOfString(kit.visualStyleRules, { width: pageWidth }) + 20;
   }
 
-  // Campaign Examples
   if (campaign && posts.length > 0) {
     doc.addPage();
     doc.rect(0, 0, doc.page.width, 8).fill(primaryColor);

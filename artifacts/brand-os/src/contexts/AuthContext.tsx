@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { getToken, getUser, getWorkspace, saveAuth, clearAuth, apiFetch, type AuthUser, type AuthWorkspace } from "@/lib/auth";
+import { setAuthTokenGetter } from "@workspace/api-client-react";
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -14,6 +15,8 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+setAuthTokenGetter(getToken);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(getUser);

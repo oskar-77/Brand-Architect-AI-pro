@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Building2, Globe, Upload, Check, Sparkles, Loader2, ChevronRight, ChevronLeft, X, Palette } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractColorsFromDataUrl } from "@/lib/colorExtractor";
+import { useAuth } from "@/contexts/AuthContext";
 
 const steps = [
   { id: 1, label: "Company Info" },
@@ -22,6 +23,7 @@ const industries = [
 export default function BrandWizard() {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
+  const { workspace } = useAuth();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     companyName: "",
@@ -99,7 +101,8 @@ export default function BrandWizard() {
           websiteUrl: form.websiteUrl || null,
           logoUrl: form.logoUrl || null,
           brandColors: extractedColors.length > 0 ? extractedColors : undefined,
-        },
+          ...(workspace ? { workspaceId: workspace.id } : {}),
+        } as Parameters<typeof createBrand.mutateAsync>[0]["data"],
       });
       setCreatedBrandId(brand.id);
 

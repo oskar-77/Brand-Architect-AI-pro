@@ -10,6 +10,8 @@ import {
 } from "@workspace/api-zod";
 import { openai, generateImageBuffer } from "@workspace/integrations-openai-ai-server";
 import { asyncHandler } from "../lib/asyncHandler";
+import { requireAuth } from "../middlewares/auth";
+import { getPostForUser } from "../lib/workspace";
 import path from "path";
 import fs from "fs";
 
@@ -19,14 +21,14 @@ fs.mkdirSync(IMAGES_DIR, { recursive: true });
 
 const router: IRouter = Router();
 
-router.get("/posts/:id", asyncHandler(async (req, res) => {
+router.get("/posts/:id", requireAuth, asyncHandler(async (req, res) => {
   const params = GetPostParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
-  const [post] = await db.select().from(postsTable).where(eq(postsTable.id, params.data.id));
+  const post = await getPostForUser(params.data.id, req.user!.userId);
   if (!post) {
     res.status(404).json({ error: "Post not found" });
     return;
@@ -35,7 +37,7 @@ router.get("/posts/:id", asyncHandler(async (req, res) => {
   res.json({ ...post, createdAt: post.createdAt.toISOString(), updatedAt: post.updatedAt.toISOString() });
 }));
 
-router.patch("/posts/:id", asyncHandler(async (req, res) => {
+router.patch("/posts/:id", requireAuth, asyncHandler(async (req, res) => {
   const params = UpdatePostParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -45,6 +47,12 @@ router.patch("/posts/:id", asyncHandler(async (req, res) => {
   const parsed = UpdatePostBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const existing = await getPostForUser(params.data.id, req.user!.userId);
+  if (!existing) {
+    res.status(404).json({ error: "Post not found" });
     return;
   }
 
@@ -58,22 +66,17 @@ router.patch("/posts/:id", asyncHandler(async (req, res) => {
 
   const [post] = await db.update(postsTable).set(updateData).where(eq(postsTable.id, params.data.id)).returning();
 
-  if (!post) {
-    res.status(404).json({ error: "Post not found" });
-    return;
-  }
-
   res.json({ ...post, createdAt: post.createdAt.toISOString(), updatedAt: post.updatedAt.toISOString() });
 }));
 
-router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
+router.post("/posts/:id/generate-image", requireAuth, asyncHandler(async (req, res) => {
   const params = GeneratePostImageParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
-  const [post] = await db.select().from(postsTable).where(eq(postsTable.id, params.data.id));
+  const post = await getPostForUser(params.data.id, req.user!.userId);
   if (!post) {
     res.status(404).json({ error: "Post not found" });
     return;
@@ -95,14 +98,14 @@ router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
   res.json({ ...updated, createdAt: updated.createdAt.toISOString(), updatedAt: updated.updatedAt.toISOString() });
 }));
 
-router.post("/posts/:id/regenerate", asyncHandler(async (req, res) => {
+router.post("/posts/:id/regenerate", requireAuth, asyncHandler(async (req, res) => {
   const params = RegeneratePostParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
 
-  const [post] = await db.select().from(postsTable).where(eq(postsTable.id, params.data.id));
+  const post = await getPostForUser(params.data.id, req.user!.userId);
   if (!post) {
     res.status(404).json({ error: "Post not found" });
     return;

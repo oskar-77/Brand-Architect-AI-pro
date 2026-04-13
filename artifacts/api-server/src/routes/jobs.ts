@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, jobsTable, postsTable, campaignsTable, brandsTable } from "@workspace/db";
 import { asyncHandler } from "../lib/asyncHandler";
-import { optionalAuth } from "../middlewares/auth";
+import { requireAuth } from "../middlewares/auth";
 import { generateImageBuffer } from "@workspace/integrations-openai-ai-server";
 import { logger } from "../lib/logger";
+import { getCampaignForUser, getUserWorkspaceIds } from "../lib/workspace";
 import path from "path";
 import fs from "fs";
 
@@ -36,10 +37,16 @@ async function processImageJob(jobId: number, payload: { postId: number }): Prom
   }
 }
 
-router.post("/campaigns/:id/generate-all-images", optionalAuth, asyncHandler(async (req, res) => {
+router.post("/campaigns/:id/generate-all-images", requireAuth, asyncHandler(async (req, res) => {
   const campaignId = parseInt(req.params.id, 10);
   if (isNaN(campaignId)) {
     res.status(400).json({ error: "Invalid campaign id" });
+    return;
+  }
+
+  const campaign = await getCampaignForUser(campaignId, req.user!.userId);
+  if (!campaign) {
+    res.status(404).json({ error: "Campaign not found" });
     return;
   }
 
@@ -82,7 +89,7 @@ router.post("/campaigns/:id/generate-all-images", optionalAuth, asyncHandler(asy
   Promise.all(workers).catch((err) => logger.error({ err }, "Worker error"));
 }));
 
-router.get("/jobs/:id", optionalAuth, asyncHandler(async (req, res) => {
+router.get("/jobs/:id", requireAuth, asyncHandler(async (req, res) => {
   const jobId = parseInt(req.params.id, 10);
   if (isNaN(jobId)) {
     res.status(400).json({ error: "Invalid job id" });
@@ -95,6 +102,24 @@ router.get("/jobs/:id", optionalAuth, asyncHandler(async (req, res) => {
     return;
   }
 
+  if (job.referenceType === "post" && job.referenceId) {
+    const workspaceIds = await getUserWorkspaceIds(req.user!.userId);
+    if (!workspaceIds.length) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+    const rows = await db
+      .select({ id: postsTable.id })
+      .from(postsTable)
+      .innerJoin(campaignsTable, eq(postsTable.campaignId, campaignsTable.id))
+      .innerJoin(brandsTable, eq(campaignsTable.brandId, brandsTable.id))
+      .where(and(eq(postsTable.id, job.referenceId), inArray(brandsTable.workspaceId, workspaceIds)));
+    if (!rows.length) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+  }
+
   res.json({
     ...job,
     createdAt: job.createdAt.toISOString(),
@@ -102,10 +127,16 @@ router.get("/jobs/:id", optionalAuth, asyncHandler(async (req, res) => {
   });
 }));
 
-router.get("/jobs", optionalAuth, asyncHandler(async (req, res) => {
+router.get("/jobs", requireAuth, asyncHandler(async (req, res) => {
   const campaignId = req.query.campaignId ? parseInt(req.query.campaignId as string, 10) : null;
 
   if (campaignId) {
+    const campaign = await getCampaignForUser(campaignId, req.user!.userId);
+    if (!campaign) {
+      res.json([]);
+      return;
+    }
+
     const posts = await db
       .select({ id: postsTable.id })
       .from(postsTable)
@@ -120,9 +151,7 @@ router.get("/jobs", optionalAuth, asyncHandler(async (req, res) => {
     const jobs = await db
       .select()
       .from(jobsTable)
-      .where(and(
-        eq(jobsTable.referenceType, "post"),
-      ));
+      .where(and(eq(jobsTable.referenceType, "post")));
 
     const relevantJobs = jobs.filter((j) => postIds.includes(j.referenceId ?? -1));
     res.json(relevantJobs.map((j) => ({
