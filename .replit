@@ -29,8 +29,8 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "BASE_PATH=/ PORT=18565 pnpm --filter @workspace/brand-os run dev"
-waitForPort = 18565
+args = "PORT=8080 pnpm --filter @workspace/api-server run dev & BASE_PATH=/ PORT=3000 pnpm --filter @workspace/brand-os run dev"
+waitForPort = 3000
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -39,6 +39,10 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[[ports]]
+localPort = 3000
+externalPort = 3003
 
 [[ports]]
 localPort = 8080
@@ -59,3 +63,8 @@ externalPort = 3001
 [[ports]]
 localPort = 18567
 externalPort = 3002
+
+[userenv]
+
+[userenv.shared]
+JWT_SECRET = "6216399a5ff449bbb6e7de11adcb8661c32220e97008f588709de5e4913d75da54fb86ee3b76c00b4d587d9a82bb38596cd8186deb85bce7bba46ec67a6a8ace"
